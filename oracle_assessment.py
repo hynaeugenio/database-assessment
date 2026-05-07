@@ -1511,63 +1511,12 @@ def parse_args():
     return p.parse_args()
 
 
-def main():
-    args    = parse_args()
-    schemas = [s.strip() for s in args.schemas.split(",")] if args.schemas else []
-    base_dir = Path(args.output_dir)
-
-    # ---- thick mode ----
-    if args.thick:
-        try:
-            oracledb.init_oracle_client(lib_dir=args.client_lib or None)
-            print("      Thick mode enabled (Oracle Instant Client loaded)")
-        except Exception as exc:
-            print(f"ERROR: Could not initialise thick mode — {exc}")
-            print("       Make sure Oracle Instant Client is installed and pass its path with --client-lib")
-            sys.exit(1)
-
-    # ---- connect ----
-    dsn = build_dsn(args)
-    sysdba_note = " AS SYSDBA" if args.sysdba else ""
-    print(f"\n[1/4] Connecting to Oracle  ({dsn}{sysdba_note}) …")
-    try:
-        connect_kwargs = dict(user=args.user, password=args.password, dsn=dsn)
-        if args.sysdba:
-            connect_kwargs["mode"] = oracledb.AUTH_MODE_SYSDBA
-        conn = oracledb.connect(**connect_kwargs)
-        print("      Connected OK")
-    except Exception as exc:
-        print(f"ERROR: Could not connect — {exc}")
-        sys.exit(1)
-
-    # ---- collect ----
-    print("\n[2/4] Collecting metadata …")
-    assessor = OracleAssessor(conn, schemas=schemas, mode=args.mode)
-    if args.no_source:
-        assessor.plsql_source = lambda: []
-    data = assessor.collect_all()
-    conn.close()
-    if data["errors"]:
-        print(f"      ⚠  {len(data['errors'])} collection warning(s) — check the HTML report for details.")
-
-    # ---- resolve output directory (grouped by database name) ----
-    db_name = (data.get("db_info", {}).get("db_name") or args.service or "unknown").strip().upper()
-    out_dir = base_dir / db_name
-    out_dir.mkdir(parents=True, exist_ok=True)
-    print(f"      Output folder: {out_dir}")
-
-    # ---- analyse ----
-    print("\n[3/4] Analysing findings …")
-    findings = analyse(data)
-    print(f"      Complexity: {findings['complexity']}  (score {findings['total_score']:,})")
-
-    # ---- write reports ----
-    print("\n[4/4] Writing reports …")
+def _write_reports(data, findings, out_dir, schemas):
+    """Write HTML, JSON, and CSV reports into out_dir."""
     ts           = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     generated_at = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    schema_suffix = "_" + "_".join(schemas) if schemas else ""
-    html_path = out_dir / f"oracle_assessment{schema_suffix}_{ts}.html"
+    html_path = out_dir / f"oracle_assessment_{ts}.html"
     html_path.write_text(generate_html(data, findings, generated_at, schemas=schemas), encoding="utf-8")
     print(f"      HTML  → {html_path}")
 
@@ -1590,7 +1539,83 @@ def main():
     obj_csv, dt_csv, plsql_csv, top_csv, lob_csv, part_tbl_csv, part_idx_csv = generate_csv(data, findings, out_dir)
     print(f"      CSV   → {obj_csv.name}, {dt_csv.name}, {plsql_csv.name}, {top_csv.name}, {lob_csv.name}, {part_tbl_csv.name}, {part_idx_csv.name}")
 
-    print(f"\nDone.  Open {html_path} in a browser to view the full report.\n")
+    return html_path
+
+
+def main():
+    args     = parse_args()
+    schemas  = [s.strip() for s in args.schemas.split(",")] if args.schemas else []
+    base_dir = Path(args.output_dir)
+
+    # ---- thick mode ----
+    if args.thick:
+        try:
+            oracledb.init_oracle_client(lib_dir=args.client_lib or None)
+            print("      Thick mode enabled (Oracle Instant Client loaded)")
+        except Exception as exc:
+            print(f"ERROR: Could not initialise thick mode — {exc}")
+            print("       Make sure Oracle Instant Client is installed and pass its path with --client-lib")
+            sys.exit(1)
+
+    # ---- connect (single connection reused for all schema runs) ----
+    dsn = build_dsn(args)
+    sysdba_note = " AS SYSDBA" if args.sysdba else ""
+    print(f"\n[1/4] Connecting to Oracle  ({dsn}{sysdba_note}) …")
+    try:
+        connect_kwargs = dict(user=args.user, password=args.password, dsn=dsn)
+        if args.sysdba:
+            connect_kwargs["mode"] = oracledb.AUTH_MODE_SYSDBA
+        conn = oracledb.connect(**connect_kwargs)
+        print("      Connected OK")
+    except Exception as exc:
+        print(f"ERROR: Could not connect — {exc}")
+        sys.exit(1)
+
+    # ---- resolve database name upfront ----
+    _tmp    = OracleAssessor(conn, schemas=[], mode=args.mode)
+    db_name = (_tmp.db_info().get("db_name") or args.service or "unknown").strip().upper()
+
+    # ---- determine runs: one per schema, or a single all-schema run ----
+    schema_runs = schemas if schemas else [None]
+
+    html_paths = []
+    total = len(schema_runs)
+    for idx, schema in enumerate(schema_runs, 1):
+        run_schemas = [schema] if schema else []
+        label       = schema or "ALL SCHEMAS"
+
+        if total > 1:
+            print(f"\n--- [{idx}/{total}] Schema: {schema} ---")
+
+        # output folder
+        out_dir = base_dir / db_name / schema if schema else base_dir / db_name
+        out_dir.mkdir(parents=True, exist_ok=True)
+        print(f"      Output folder: {out_dir}")
+
+        # collect
+        print("\n[2/4] Collecting metadata …")
+        assessor = OracleAssessor(conn, schemas=run_schemas, mode=args.mode)
+        if args.no_source:
+            assessor.plsql_source = lambda: []
+        data = assessor.collect_all()
+        if data["errors"]:
+            print(f"      ⚠  {len(data['errors'])} collection warning(s) — check the HTML report for details.")
+
+        # analyse
+        print("\n[3/4] Analysing findings …")
+        findings = analyse(data)
+        print(f"      Complexity: {findings['complexity']}  (score {findings['total_score']:,})")
+
+        # write reports
+        print("\n[4/4] Writing reports …")
+        html_path = _write_reports(data, findings, out_dir, run_schemas)
+        html_paths.append(html_path)
+
+    conn.close()
+
+    print(f"\nDone.  {len(html_paths)} report(s) generated.")
+    for p in html_paths:
+        print(f"  → {p}")
 
 
 if __name__ == "__main__":
