@@ -55,7 +55,20 @@ python oracle_assessment.py \
   --password secret
 ```
 
-### Assess specific schemas only
+### Assess a single schema
+
+```bash
+python oracle_assessment.py \
+  --host myoracle.example.com \
+  --service ORCL \
+  --user assessor \
+  --password secret \
+  --schemas HR
+```
+
+### Assess multiple schemas
+
+Pass a comma-separated list of schema names (no spaces). The report will cover all named schemas combined.
 
 ```bash
 python oracle_assessment.py \
@@ -64,6 +77,20 @@ python oracle_assessment.py \
   --user assessor \
   --password secret \
   --schemas HR,SALES,FINANCE
+```
+
+If `--schemas` is omitted, **all non-system schemas** are assessed automatically.
+
+### Multiple schemas with custom output directory
+
+```bash
+python oracle_assessment.py \
+  --host myoracle.example.com \
+  --service ORCL \
+  --user assessor \
+  --password secret \
+  --schemas HR,SALES,FINANCE \
+  --output-dir ./reports/my_assessment
 ```
 
 ### Use a TNS connection string

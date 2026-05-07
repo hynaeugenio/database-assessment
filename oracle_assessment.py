@@ -1094,6 +1094,20 @@ def generate_html(data, findings, generated_at, schemas=None):
         parts.append(f'<div class="info-item"><div class="key">{_e(key)}</div><div class="val">{_e(val)}</div></div>')
     parts.append("</div></div>")
 
+    # ---------- SCHEMAS ----------
+    schema_data = data.get("schemas", [])
+    if schema_data:
+        parts.append('<div class="card"><h2>Schemas / Users in Scope</h2>')
+        parts.append('<table><thead><tr><th>Username</th><th>Status</th><th>Created</th><th>Default Tablespace</th></tr></thead><tbody>')
+        for row in schema_data:
+            parts.append(
+                f"<tr><td><strong>{_e(row.get('username',''))}</strong></td>"
+                f"<td>{_e(row.get('account_status',''))}</td>"
+                f"<td>{_e(row.get('created',''))}</td>"
+                f"<td>{_e(row.get('default_tablespace',''))}</td></tr>"
+            )
+        parts.append("</tbody></table></div>")
+
     # ---------- OBJECT INVENTORY ----------
     parts.append('<div class="card"><h2>Object Inventory</h2>')
     if findings["object_totals"]:
@@ -1352,20 +1366,6 @@ def generate_html(data, findings, generated_at, schemas=None):
     recs_html = "".join(f"<li>{_e(r)}</li>" for r in findings["recommendations"])
     parts.append(f'<ol class="rec-list">{recs_html}</ol></div>')
 
-    # ---------- SCHEMAS ----------
-    schema_data = data.get("schemas", [])
-    if schema_data:
-        parts.append('<div class="card"><h2>Schemas / Users in Scope</h2>')
-        parts.append('<table><thead><tr><th>Username</th><th>Status</th><th>Created</th><th>Default Tablespace</th></tr></thead><tbody>')
-        for row in schema_data:
-            parts.append(
-                f"<tr><td><strong>{_e(row.get('username',''))}</strong></td>"
-                f"<td>{_e(row.get('account_status',''))}</td>"
-                f"<td>{_e(row.get('created',''))}</td>"
-                f"<td>{_e(row.get('default_tablespace',''))}</td></tr>"
-            )
-        parts.append("</tbody></table></div>")
-
     # ---------- FOOTER ----------
     parts.append(f"""<div style="text-align:center;color:#adb5bd;font-size:.8em;padding:24px 0">
   Oracle → PostgreSQL Migration Assessment Tool v{VERSION} &nbsp;·&nbsp; Generated {_e(generated_at)}
@@ -1514,8 +1514,7 @@ def parse_args():
 def main():
     args    = parse_args()
     schemas = [s.strip() for s in args.schemas.split(",")] if args.schemas else []
-    out_dir = Path(args.output_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
+    base_dir = Path(args.output_dir)
 
     # ---- thick mode ----
     if args.thick:
@@ -1550,6 +1549,12 @@ def main():
     conn.close()
     if data["errors"]:
         print(f"      ⚠  {len(data['errors'])} collection warning(s) — check the HTML report for details.")
+
+    # ---- resolve output directory (grouped by database name) ----
+    db_name = (data.get("db_info", {}).get("db_name") or args.service or "unknown").strip().upper()
+    out_dir = base_dir / db_name
+    out_dir.mkdir(parents=True, exist_ok=True)
+    print(f"      Output folder: {out_dir}")
 
     # ---- analyse ----
     print("\n[3/4] Analysing findings …")
