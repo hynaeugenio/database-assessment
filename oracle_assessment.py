@@ -965,6 +965,48 @@ def analyse(data):
 EFFORT_COLOUR = {"LOW": "#28a745", "MEDIUM": "#fd7e14", "HIGH": "#dc3545"}
 COMPLEXITY_COLOUR = {"LOW": "#28a745", "MEDIUM": "#fd7e14", "HIGH": "#dc3545"}
 
+_CSS = """
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;font-size:14px;color:#212529;background:#f8f9fa}
+  .header{background:linear-gradient(135deg,#1a1a2e,#16213e);color:#fff;padding:32px 40px}
+  .header h1{font-size:2em;font-weight:700}
+  .header p{opacity:.8;margin-top:6px}
+  .container{max-width:1200px;margin:0 auto;padding:28px 24px}
+  .card{background:#fff;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,.08);padding:24px;margin-bottom:24px}
+  .card h2{font-size:1.15em;margin-bottom:16px;color:#1a1a2e;border-bottom:2px solid #e9ecef;padding-bottom:8px}
+  .cards-row{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:16px;margin-bottom:24px}
+  .stat-card{background:#fff;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,.08);padding:20px;text-align:center}
+  .stat-card .num{font-size:2.2em;font-weight:700;color:#1a1a2e}
+  .stat-card .lbl{color:#6c757d;font-size:0.85em;margin-top:4px}
+  table{width:100%;border-collapse:collapse;font-size:0.9em}
+  th{background:#f1f3f5;text-align:left;padding:9px 12px;font-weight:600;color:#495057;border-bottom:2px solid #dee2e6}
+  td{padding:8px 12px;border-bottom:1px solid #f1f3f5;vertical-align:top}
+  tr:hover td{background:#f8f9fa}
+  .complexity-badge{display:inline-block;padding:6px 18px;border-radius:20px;font-weight:700;font-size:1em;color:#fff}
+  .rec-list{list-style:none;counter-reset:rec}
+  .rec-list li{counter-increment:rec;padding:10px 12px 10px 48px;position:relative;border-bottom:1px solid #f1f3f5}
+  .rec-list li::before{content:counter(rec);position:absolute;left:12px;top:10px;background:#1a1a2e;color:#fff;width:22px;height:22px;border-radius:50%;text-align:center;font-size:.8em;line-height:22px;font-weight:600}
+  .info-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px}
+  .info-item .key{font-weight:600;color:#495057;font-size:.8em;text-transform:uppercase;letter-spacing:.5px}
+  .info-item .val{color:#212529;margin-top:2px}
+  .errors{background:#fff3cd;border:1px solid #ffc107;border-radius:6px;padding:14px;font-size:.85em}
+  .section-note{color:#6c757d;font-size:.85em;margin-bottom:12px}
+  .tab-nav{display:flex;gap:0;background:#16213e;padding:0 40px;overflow-x:auto}
+  .tab-btn{padding:12px 20px;color:rgba(255,255,255,0.65);border:none;background:transparent;cursor:pointer;font-size:13px;font-weight:500;border-bottom:3px solid transparent;white-space:nowrap;transition:color .2s}
+  .tab-btn:hover{color:#fff;background:rgba(255,255,255,.05)}
+  .tab-btn.active{color:#fff;border-bottom-color:#4dabf7}
+  .tab-content{display:none}
+  .tab-content.active{display:block}"""
+
+_TAB_JS = """<script>
+function showTab(btn,tabId){
+  document.querySelectorAll('.tab-content').forEach(el=>el.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(el=>el.classList.remove('active'));
+  document.getElementById('tab-'+tabId).classList.add('active');
+  btn.classList.add('active');
+}
+</script>"""
+
 
 def _e(text):
     """HTML-escape a value for safe output."""
@@ -976,12 +1018,14 @@ def _badge(effort):
     return f'<span style="background:{colour};color:#fff;padding:2px 8px;border-radius:4px;font-size:0.8em">{_e(effort)}</span>'
 
 
-def generate_html(data, findings, generated_at, schemas=None):
-    db_info      = data.get("db_info", {})
-    pdb_name     = data.get("pdb_name", "N/A")
-    complexity   = findings["complexity"]
-    obj_totals   = findings["object_totals"]
-    schema_label = ", ".join(schemas) if schemas else "All Schemas"
+def _report_sections(data, findings, schemas=None):
+    """Returns list of HTML parts for the report body content (no html/head/body wrapper)."""
+    db_info           = data.get("db_info", {})
+    pdb_name          = data.get("pdb_name", "N/A")
+    complexity        = findings["complexity"]
+    obj_totals        = findings["object_totals"]
+    schema_label      = ", ".join(schemas) if schemas else "All Schemas"
+    complexity_colour = COMPLEXITY_COLOUR[complexity]
 
     total_objects = sum(obj_totals.values())
     total_tables  = obj_totals.get("TABLE", 0)
@@ -990,52 +1034,25 @@ def generate_html(data, findings, generated_at, schemas=None):
 
     parts = []
 
-    # ---------- HEAD ----------
-    parts.append(f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<title>Oracle to PostgreSQL Migration Assessment - {_e(schema_label)}</title>
-<style>
-  *{{box-sizing:border-box;margin:0;padding:0}}
-  body{{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;font-size:14px;color:#212529;background:#f8f9fa}}
-  .header{{background:linear-gradient(135deg,#1a1a2e,#16213e);color:#fff;padding:32px 40px}}
-  .header h1{{font-size:2em;font-weight:700}}
-  .header p{{opacity:.8;margin-top:6px}}
-  .container{{max-width:1200px;margin:0 auto;padding:28px 24px}}
-  .card{{background:#fff;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,.08);padding:24px;margin-bottom:24px}}
-  .card h2{{font-size:1.15em;margin-bottom:16px;color:#1a1a2e;border-bottom:2px solid #e9ecef;padding-bottom:8px}}
-  .cards-row{{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:16px;margin-bottom:24px}}
-  .stat-card{{background:#fff;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,.08);padding:20px;text-align:center}}
-  .stat-card .num{{font-size:2.2em;font-weight:700;color:#1a1a2e}}
-  .stat-card .lbl{{color:#6c757d;font-size:0.85em;margin-top:4px}}
-  table{{width:100%;border-collapse:collapse;font-size:0.9em}}
-  th{{background:#f1f3f5;text-align:left;padding:9px 12px;font-weight:600;color:#495057;border-bottom:2px solid #dee2e6}}
-  td{{padding:8px 12px;border-bottom:1px solid #f1f3f5;vertical-align:top}}
-  tr:hover td{{background:#f8f9fa}}
-  .complexity-badge{{display:inline-block;padding:6px 18px;border-radius:20px;font-weight:700;font-size:1em;color:#fff;background:{COMPLEXITY_COLOUR[complexity]}}}
-  .rec-list{{list-style:none;counter-reset:rec}}
-  .rec-list li{{counter-increment:rec;padding:10px 12px 10px 48px;position:relative;border-bottom:1px solid #f1f3f5}}
-  .rec-list li::before{{content:counter(rec);position:absolute;left:12px;top:10px;background:#1a1a2e;color:#fff;width:22px;height:22px;border-radius:50%;text-align:center;font-size:.8em;line-height:22px;font-weight:600}}
-  .info-grid{{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px}}
-  .info-item .key{{font-weight:600;color:#495057;font-size:.8em;text-transform:uppercase;letter-spacing:.5px}}
-  .info-item .val{{color:#212529;margin-top:2px}}
-  .errors{{background:#fff3cd;border:1px solid #ffc107;border-radius:6px;padding:14px;font-size:.85em}}
-  .section-note{{color:#6c757d;font-size:.85em;margin-bottom:12px}}
-</style>
-</head>
-<body>
-<div class="header">
-  <h1>Oracle &rarr; PostgreSQL Migration Assessment</h1>
-  <p>
-    Database: <strong>{_e(db_info.get('db_name','N/A'))}</strong> &nbsp;|&nbsp;
-    PDB: <strong>{_e(pdb_name)}</strong> &nbsp;|&nbsp;
-    Schema(s): <strong>{_e(schema_label)}</strong> &nbsp;|&nbsp;
-    Generated: <strong>{_e(generated_at)}</strong> &nbsp;|&nbsp;
-    Tool version: <strong>{VERSION}</strong>
-  </p>
+    # ---------- ERRORS ----------
+    if data.get("errors"):
+        errs = "".join(f"<li>{_e(e)}</li>" for e in data["errors"])
+        parts.append(f'<div class="errors"><strong>⚠ Collection warnings (some queries may have been skipped):</strong><ul>{errs}</ul></div><br>')
+
+    # ---------- COMPLEXITY SUMMARY ----------
+    parts.append(f"""<div class="card">
+  <h2>Executive Summary</h2>
+  <div style="display:flex;align-items:center;gap:24px;flex-wrap:wrap">
+    <div>
+      <div style="color:#6c757d;font-size:.85em;margin-bottom:6px">OVERALL MIGRATION COMPLEXITY</div>
+      <span class="complexity-badge" style="background:{complexity_colour}">{complexity}</span>
+    </div>
+    <div style="flex:1;min-width:220px;color:#495057;font-size:.92em">
+      Complexity score: <strong>{findings['total_score']:,}</strong> (weighted by effort × frequency).
+      Score &lt; 100 = LOW · 100–999 = MEDIUM · 1000+ = HIGH.
+    </div>
+  </div>
 </div>
-<div class="container">
 """)
 
     # ---------- ERRORS ----------
@@ -1366,14 +1383,127 @@ def generate_html(data, findings, generated_at, schemas=None):
     recs_html = "".join(f"<li>{_e(r)}</li>" for r in findings["recommendations"])
     parts.append(f'<ol class="rec-list">{recs_html}</ol></div>')
 
-    # ---------- FOOTER ----------
-    parts.append(f"""<div style="text-align:center;color:#adb5bd;font-size:.8em;padding:24px 0">
-  Oracle → PostgreSQL Migration Assessment Tool v{VERSION} &nbsp;·&nbsp; Generated {_e(generated_at)}
-</div>
-</div>
-</body>
-</html>""")
+    return parts
 
+
+def _footer(generated_at):
+    return (f'<div style="text-align:center;color:#adb5bd;font-size:.8em;padding:24px 0">'
+            f'Oracle → PostgreSQL Migration Assessment Tool v{VERSION}'
+            f' &nbsp;&middot;&nbsp; Generated {_e(generated_at)}</div>')
+
+
+def generate_html(data, findings, generated_at, schemas=None):
+    """Standalone single-schema/all-schema HTML report."""
+    db_info      = data.get("db_info", {})
+    pdb_name     = data.get("pdb_name", "N/A")
+    schema_label = ", ".join(schemas) if schemas else "All Schemas"
+
+    parts = [f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Oracle to PostgreSQL Migration Assessment - {_e(schema_label)}</title>
+<style>{_CSS}</style>
+</head>
+<body>
+<div class="header">
+  <h1>Oracle &rarr; PostgreSQL Migration Assessment</h1>
+  <p>
+    Database: <strong>{_e(db_info.get('db_name','N/A'))}</strong> &nbsp;|&nbsp;
+    PDB: <strong>{_e(pdb_name)}</strong> &nbsp;|&nbsp;
+    Schema(s): <strong>{_e(schema_label)}</strong> &nbsp;|&nbsp;
+    Generated: <strong>{_e(generated_at)}</strong> &nbsp;|&nbsp;
+    Tool version: <strong>{VERSION}</strong>
+  </p>
+</div>
+<div class="container">
+"""]
+    parts.extend(_report_sections(data, findings, schemas))
+    parts.append(_footer(generated_at))
+    parts.append("\n</div>\n</body>\n</html>")
+    return "".join(parts)
+
+
+def _build_summary_tab(schema_runs):
+    """Overview table for the Summary tab — one row per schema."""
+    parts = ['<div class="card"><h2>Assessment Overview</h2>']
+    parts.append(
+        '<table><thead><tr>'
+        '<th>Schema</th><th>Tables</th><th>Total Objects</th><th>Packages</th>'
+        '<th>PL/SQL Findings</th><th>Complexity</th><th>Score</th>'
+        '</tr></thead><tbody>'
+    )
+    for label, data, findings, schemas in schema_runs:
+        obj_totals    = findings["object_totals"]
+        tables        = obj_totals.get("TABLE", 0)
+        total_objects = sum(obj_totals.values())
+        packages      = obj_totals.get("PACKAGE", 0) + obj_totals.get("PACKAGE BODY", 0)
+        plsql_count   = len(findings["plsql_hits"])
+        complexity    = findings["complexity"]
+        score         = findings["total_score"]
+        colour        = COMPLEXITY_COLOUR[complexity]
+        parts.append(
+            f'<tr><td><strong>{_e(label)}</strong></td>'
+            f'<td>{tables:,}</td><td>{total_objects:,}</td><td>{packages:,}</td>'
+            f'<td>{plsql_count:,}</td>'
+            f'<td><span class="complexity-badge" style="background:{colour}">{_e(complexity)}</span></td>'
+            f'<td>{score:,}</td></tr>'
+        )
+    parts.append('</tbody></table></div>')
+    return "".join(parts)
+
+
+def generate_html_tabbed(db_info, pdb_name, schema_runs, generated_at):
+    """Tabbed HTML report — Summary tab + one tab per schema.
+
+    schema_runs: list of (label, data, findings, schemas_list)
+    """
+    db_name   = db_info.get("db_name", "N/A")
+    tab_ids   = [f"schema-{i}" for i in range(len(schema_runs))]
+    labels    = [r[0] for r in schema_runs]
+
+    parts = [f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Oracle to PostgreSQL Migration Assessment - {_e(db_name)}</title>
+<style>{_CSS}</style>
+</head>
+<body>
+<div class="header">
+  <h1>Oracle &rarr; PostgreSQL Migration Assessment</h1>
+  <p>
+    Database: <strong>{_e(db_name)}</strong> &nbsp;|&nbsp;
+    PDB: <strong>{_e(pdb_name)}</strong> &nbsp;|&nbsp;
+    Schemas: <strong>{_e(", ".join(labels))}</strong> &nbsp;|&nbsp;
+    Generated: <strong>{_e(generated_at)}</strong> &nbsp;|&nbsp;
+    Tool version: <strong>{VERSION}</strong>
+  </p>
+</div>
+<div class="tab-nav">
+  <button class="tab-btn active" onclick="showTab(this,'summary')">&#9654; Summary</button>
+"""]
+
+    for i, label in enumerate(labels):
+        parts.append(f'  <button class="tab-btn" onclick="showTab(this,\'{tab_ids[i]}\')"> {_e(label)}</button>\n')
+
+    parts.append("</div>\n")
+
+    # Summary tab
+    parts.append('<div id="tab-summary" class="tab-content active"><div class="container">')
+    parts.append(_build_summary_tab(schema_runs))
+    parts.append(_footer(generated_at))
+    parts.append('</div></div>\n')
+
+    # Per-schema tabs
+    for i, (label, data, findings, schemas) in enumerate(schema_runs):
+        parts.append(f'<div id="tab-{tab_ids[i]}" class="tab-content"><div class="container">\n')
+        parts.extend(_report_sections(data, findings, schemas))
+        parts.append(_footer(generated_at))
+        parts.append('</div></div>\n')
+
+    parts.append(_TAB_JS)
+    parts.append("\n</body>\n</html>")
     return "".join(parts)
 
 
@@ -1511,22 +1641,17 @@ def parse_args():
     return p.parse_args()
 
 
-def _write_reports(data, findings, out_dir, schemas):
-    """Write HTML, JSON, and CSV reports into out_dir."""
-    ts           = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    generated_at = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+def _serialise(obj):
+    if isinstance(obj, (set, frozenset)):
+        return list(obj)
+    raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
 
-    html_path = out_dir / f"oracle_assessment_{ts}.html"
-    html_path.write_text(generate_html(data, findings, generated_at, schemas=schemas), encoding="utf-8")
-    print(f"      HTML  → {html_path}")
+
+def _write_json_csv(data, findings, out_dir, generated_at):
+    """Write JSON and CSV data files into out_dir."""
+    ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 
     json_path = out_dir / f"oracle_assessment_{ts}.json"
-
-    def _serialise(obj):
-        if isinstance(obj, (set, frozenset)):
-            return list(obj)
-        raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
-
     json_path.write_text(
         json.dumps({"metadata": {"generated_at": generated_at, "version": VERSION},
                     "data": data, "findings": {k: (dict(v) if isinstance(v, Counter) else v)
@@ -1539,6 +1664,17 @@ def _write_reports(data, findings, out_dir, schemas):
     obj_csv, dt_csv, plsql_csv, top_csv, lob_csv, part_tbl_csv, part_idx_csv = generate_csv(data, findings, out_dir)
     print(f"      CSV   → {obj_csv.name}, {dt_csv.name}, {plsql_csv.name}, {top_csv.name}, {lob_csv.name}, {part_tbl_csv.name}, {part_idx_csv.name}")
 
+
+def _write_reports(data, findings, out_dir, schemas):
+    """Write HTML + JSON + CSV reports into out_dir (single schema / all-schemas)."""
+    ts           = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    generated_at = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    html_path = out_dir / f"oracle_assessment_{ts}.html"
+    html_path.write_text(generate_html(data, findings, generated_at, schemas=schemas), encoding="utf-8")
+    print(f"      HTML  → {html_path}")
+
+    _write_json_csv(data, findings, out_dir, generated_at)
     return html_path
 
 
@@ -1573,49 +1709,77 @@ def main():
 
     # ---- resolve database name upfront ----
     _tmp    = OracleAssessor(conn, schemas=[], mode=args.mode)
-    db_name = (_tmp.db_info().get("db_name") or args.service or "unknown").strip().upper()
+    _db_inf = _tmp.db_info()
+    db_name = (_db_inf.get("db_name") or args.service or "unknown").strip().upper()
 
-    # ---- determine runs: one per schema, or a single all-schema run ----
-    schema_runs = schemas if schemas else [None]
+    if len(schemas) > 1:
+        # ---- multi-schema: one tabbed HTML at DB level, per-schema JSON/CSV ----
+        db_out_dir = base_dir / db_name
+        db_out_dir.mkdir(parents=True, exist_ok=True)
 
-    html_paths = []
-    total = len(schema_runs)
-    for idx, schema in enumerate(schema_runs, 1):
-        run_schemas = [schema] if schema else []
-        label       = schema or "ALL SCHEMAS"
+        total        = len(schemas)
+        schema_runs  = []
+        generated_at = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        if total > 1:
+        for idx, schema in enumerate(schemas, 1):
             print(f"\n--- [{idx}/{total}] Schema: {schema} ---")
+            schema_dir = db_out_dir / schema
+            schema_dir.mkdir(parents=True, exist_ok=True)
 
-        # output folder
-        out_dir = base_dir / db_name / schema if schema else base_dir / db_name
+            print("\n[2/4] Collecting metadata …")
+            assessor = OracleAssessor(conn, schemas=[schema], mode=args.mode)
+            if args.no_source:
+                assessor.plsql_source = lambda: []
+            data = assessor.collect_all()
+            if data["errors"]:
+                print(f"      ⚠  {len(data['errors'])} collection warning(s) — check the HTML report for details.")
+
+            print("\n[3/4] Analysing findings …")
+            findings = analyse(data)
+            print(f"      Complexity: {findings['complexity']}  (score {findings['total_score']:,})")
+
+            print("\n[4/4] Writing JSON & CSV …")
+            _write_json_csv(data, findings, schema_dir, generated_at)
+
+            schema_runs.append((schema, data, findings, [schema]))
+
+        conn.close()
+
+        # generate one tabbed HTML at the DB level
+        ts        = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        pdb_name  = schema_runs[0][1].get("pdb_name", "N/A")
+        html_path = db_out_dir / f"oracle_assessment_{ts}.html"
+        html_path.write_text(
+            generate_html_tabbed(_db_inf, pdb_name, schema_runs, generated_at),
+            encoding="utf-8"
+        )
+        print(f"\n      Tabbed HTML → {html_path}")
+        print(f"\nDone.  Open {html_path} in a browser to view the full report.\n")
+
+    else:
+        # ---- single schema or all schemas: standard single-file report ----
+        schema      = schemas[0] if schemas else None
+        run_schemas = [schema] if schema else []
+        out_dir     = base_dir / db_name / schema if schema else base_dir / db_name
         out_dir.mkdir(parents=True, exist_ok=True)
         print(f"      Output folder: {out_dir}")
 
-        # collect
         print("\n[2/4] Collecting metadata …")
         assessor = OracleAssessor(conn, schemas=run_schemas, mode=args.mode)
         if args.no_source:
             assessor.plsql_source = lambda: []
         data = assessor.collect_all()
+        conn.close()
         if data["errors"]:
             print(f"      ⚠  {len(data['errors'])} collection warning(s) — check the HTML report for details.")
 
-        # analyse
         print("\n[3/4] Analysing findings …")
         findings = analyse(data)
         print(f"      Complexity: {findings['complexity']}  (score {findings['total_score']:,})")
 
-        # write reports
         print("\n[4/4] Writing reports …")
         html_path = _write_reports(data, findings, out_dir, run_schemas)
-        html_paths.append(html_path)
-
-    conn.close()
-
-    print(f"\nDone.  {len(html_paths)} report(s) generated.")
-    for p in html_paths:
-        print(f"  → {p}")
+        print(f"\nDone.  Open {html_path} in a browser to view the full report.\n")
 
 
 if __name__ == "__main__":
