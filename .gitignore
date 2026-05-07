@@ -1,0 +1,16 @@
+# Generated assessment reports (may contain sensitive database data)
+report/
+reports/
+*.html
+*.json
+*.csv
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.env
+*.egg-info/
+dist/
+build/
